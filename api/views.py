@@ -284,20 +284,23 @@ class SetApproval(APIView):
         member.approved = approved
         member.save()
 
-        if member.approved:
-            send_mail(
-                subject="Подтверждение участия на конференции {}".format(conference.name),
-                from_email= EMAIL_HOST_USER,
-                recipient_list = [member.email],
-                message= "Поздравляем! Вашу личность подтвердили на участие в конференции '{}'".format(conference.name)
-            )
-        else:
-            send_mail(
-                subject="Подтверждение участия на конференции {}".format(conference.name),
-                from_email= EMAIL_HOST_USER,
-                recipient_list = [member.email],
-                message= "К сожалению, организатор не подтвердил вас на участие в конференции '{}'".format(conference.name)
-            )
+        try:
+            if member.approved:
+                send_mail(
+                    subject="Подтверждение участия на конференции {}".format(conference.name),
+                    from_email= EMAIL_HOST_USER,
+                    recipient_list = [member.email],
+                    message= "Поздравляем! Вашу личность подтвердили на участие в конференции '{}'".format(conference.name)
+                )
+            else:
+                send_mail(
+                    subject="Подтверждение участия на конференции {}".format(conference.name),
+                    from_email= EMAIL_HOST_USER,
+                    recipient_list = [member.email],
+                    message= "К сожалению, организатор не подтвердил вас на участие в конференции '{}'".format(conference.name)
+                )
+        except:
+            pass
 
         return Response({"status": "ok"})
 
