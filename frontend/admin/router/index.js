@@ -3,6 +3,7 @@ import VueRouter from 'vue-router'
 import Home from '../views/Home.vue'
 import Login from '../views/Login.vue'
 import Members from '../views/Members.vue'
+import AllMembers from '../views/AllMembers.vue'
 import Register from '../views/Register'
 import store from '../store'
 
@@ -41,6 +42,15 @@ const routes = [
     meta: {
       layout: 'login-layout'
     }
+  },
+  {
+    path: '/members',
+    component: AllMembers,
+    name: 'Members',
+    meta: {
+      requiresAuth: true
+    },
+    props: true
   }
 ]
 

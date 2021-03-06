@@ -29,7 +29,7 @@
                 </v-list-item-icon>
                 <v-list-item-title>Все Конференции</v-list-item-title>
             </v-list-item>
-            <v-list-item link>
+            <v-list-item link :to="{name: 'Members'}">
                 <v-list-item-icon>
                     <v-icon>mdi-human-queue</v-icon>
                 </v-list-item-icon>

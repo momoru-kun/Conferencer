@@ -237,7 +237,12 @@ class GetAllMembers(APIView):
 
         members = []
         for conf in conferences:
-            members += [member.to_dict() for member in conf.member_set.all()]
+            for member in conf.member_set.all():
+                member = member.to_dict()
+                member['conf_name'] = conf.name
+                member['conf_id'] = conf.id
+
+                members.append(member)
 
         return Response({"status": "ok", "response": members})
 
@@ -401,6 +406,74 @@ class GetConferenceMembersExcel(APIView):
 
         worksheet.write(0, 0, conference.name)
         worksheet.set_column(0, 0, len(conference.name)+20)
+
+        for i, col in enumerate(df.columns):
+            column_len = df[col].astype(str).str.len().max()
+            column_len = max(column_len, len(col)) + 10
+            worksheet.set_column(i, i, column_len)
+
+        writer.save()
+
+        file_data = open(filename, 'rb').read()
+
+        os.remove(filename)
+
+        return Response({'status': 'ok', 'data': base64.b64encode(file_data)})
+
+class AllMembersToExcel(APIView):
+    permission_classes = (permissions.IsAuthenticated,)
+    parser_classes = (parsers.JSONParser,)
+
+    def get(self, request):
+        serializer = UserSerializer(request.user)
+        id_ = serializer.data['id']
+        u = User.objects.get(pk=id_)
+
+        conferences = u.conference_set.all()
+
+        table = {
+            "Фамилия": [],
+            "Имя": [],
+            "Отчество": [],
+            "Конференция": [],
+            "E-mail": [],
+            "Город": [],
+            "Учебное заведение": [],
+            "Направление": [],
+            "Выступает с докладом": [],
+            "Тема доклада": [],
+            "Подтверждён": [],
+        }
+
+        for conference in conferences:
+            for member in conference.member_set.all():
+                approval = "-"
+                if member.approved == None:
+                    approval = "Не подтверждён"
+                elif member.approved == True:
+                    approval = "Подтверждён"
+                elif member.approved == False:
+                    approval = "Отклонён"
+                table['Фамилия'].append(member.surname)
+                table['Имя'].append(member.name)
+                table['Отчество'].append(member.middlename)
+                table['E-mail'].append(member.email)
+                table['Город'].append(member.city)
+                table['Учебное заведение'].append(member.uni)
+                table['Направление'].append(member.course)
+                table['Выступает с докладом'].append("Да" if member.with_topic else "Нет")
+                table['Тема доклада'].append(member.topic)
+                table['Подтверждён'].append(approval)
+                table['Конференция'].append(conference.name)
+
+        filename = './{}.xlsx'.format(hex(int(time() * 1000)))
+
+        df = pd.DataFrame(table)
+        writer = pd.ExcelWriter(filename, engine='xlsxwriter')
+        df.to_excel(writer, startrow = 0, startcol = 0, sheet_name='Участники всех конференций', index=False)
+
+        workbook = writer.book
+        worksheet = writer.sheets['Участники всех конференций']
 
         for i, col in enumerate(df.columns):
             column_len = df[col].astype(str).str.len().max()
