@@ -1,5 +1,6 @@
 from django.shortcuts import get_object_or_404
 from django.contrib.auth.models import User
+from django.core.mail import send_mail
 
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -8,6 +9,14 @@ from rest_framework.renderers import JSONRenderer
 
 from api.models import Conference, Member
 from api.serializers import UserSerializer
+from confregistration.FileRenderer import FileRenderer 
+from confregistration.settings import EMAIL_HOST_USER
+
+from time import time
+
+import pandas as pd
+import base64
+import os
 
 # USERS SECTION
 class GetUser(APIView):
@@ -65,6 +74,7 @@ class Register(APIView):
         u.save()
 
         return Response({'status': 'ok', 'user_id': u.id})
+
 
 # CONFERENCES SECTION
 class GetConfirence(APIView):
@@ -161,6 +171,7 @@ class ChangeStatus(APIView):
 
         return Response({"status": "ok"})
 
+
 # MEMBERS SECTION
 class AddMember(APIView):
     permission_classes = (permissions.AllowAny,)
@@ -198,7 +209,7 @@ class AddMember(APIView):
 
 
 class GetConferenceMembers(APIView):
-    permission_classes = (permissions.AllowAny,)
+    permission_classes = (permissions.IsAuthenticated,)
     parser_classes = (parsers.JSONParser,)
     renderer_classes = (JSONRenderer,)
 
@@ -210,3 +221,196 @@ class GetConferenceMembers(APIView):
         members = [member.to_dict() for member in u.conference_set.get(pk=request.data['conf_id']).member_set.all()]
 
         return Response({"status": "ok", "response": members})
+
+
+class GetAllMembers(APIView):
+    permission_classes = (permissions.IsAuthenticated,)
+    parser_classes = (parsers.JSONParser,)
+    renderer_classes = (JSONRenderer,)
+
+    def post(self, request):
+        serializer = UserSerializer(request.user)
+        id_ = serializer.data['id']
+        u = User.objects.get(pk=id_)
+
+        conferences = u.conference_set.all()
+
+        members = []
+        for conf in conferences:
+            members += [member.to_dict() for member in conf.member_set.all()]
+
+        return Response({"status": "ok", "response": members})
+
+
+class SetApproval(APIView):
+    permission_classes = (permissions.IsAuthenticated,)
+    parser_classes = (parsers.JSONParser,)
+    renderer_classes = (JSONRenderer,)
+
+    def post(self, request):
+        serializer = UserSerializer(request.user)
+        id_ = serializer.data['id']
+        u = User.objects.get(pk=id_)
+
+        conf_id = request.data.get('conf_id', None)
+        if conf_id == None:
+            return Response(data={"status": "error", "error_description": "`conf_id` field is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        member_id = request.data.get('member_id', None)
+        if member_id == None:
+            return Response(data={"status": "error", "error_description": "`member_id` field is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+
+        conference = None
+        try:
+            conference = u.conference_set.get(pk=conf_id)
+        except:
+            return Response(data={"status": "error", "error_description": "Couldn't found conference"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        member = None
+        try:
+            member = conference.member_set.get(pk=member_id)
+        except:
+            return Response(data={"status": "error", "error_description": "Couldn't found member"}, status=status.HTTP_400_BAD_REQUEST)
+    
+        approved = request.data.get('approved', None)
+        if approved == None:
+            return Response(data={"status": "error", "error_description": "`approved` field is required"}, status=status.HTTP_400_BAD_REQUEST)
+        member.approved = approved
+        member.save()
+
+        if member.approved:
+            send_mail(
+                subject="Подтверждение участия на конференции {}".format(conference.name),
+                from_email= EMAIL_HOST_USER,
+                recipient_list = [member.email],
+                message= "Поздравляем! Вашу личность подтвердили на участие в конференции '{}'".format(conference.name)
+            )
+        else:
+            send_mail(
+                subject="Подтверждение участия на конференции {}".format(conference.name),
+                from_email= EMAIL_HOST_USER,
+                recipient_list = [member.email],
+                message= "К сожалению, организатор не подтвердил вас на участие в конференции '{}'".format(conference.name)
+            )
+
+        return Response({"status": "ok"})
+
+
+# EXPORT SECTION
+class GetConferencesExcel(APIView):
+    permission_classes = (permissions.IsAuthenticated,)
+    parser_classes = (parsers.JSONParser,)
+
+    def get(self, request):
+        serializer = UserSerializer(request.user)
+        id_ = serializer.data['id']
+        u = User.objects.get(pk=id_)
+
+        conferences = u.conference_set.all()
+
+        table = {
+            'Название': [],
+            'Подали заявку': [],
+            'Идёт набор': []
+        }
+
+        for conf in conferences:
+            table['Название'].append(conf.name)
+            table['Подали заявку'].append(conf.member_set.count())
+            table['Идёт набор'].append("Да" if conf.active else "Нет")
+
+        filename = './{}.xlsx'.format(hex(int(time() * 1000)))
+
+        df = pd.DataFrame(table)
+        writer = pd.ExcelWriter(filename, engine='xlsxwriter')
+        df.to_excel(writer, startrow = 1, sheet_name='Конференции', index=False)
+
+        workbook = writer.book
+        worksheet = writer.sheets['Конференции']
+
+        for i, col in enumerate(df.columns):
+            column_len = df[col].astype(str).str.len().max()
+            column_len = max(column_len, len(col)) + 2
+            worksheet.set_column(i, i, column_len)
+
+        writer.save()
+
+        file_data = open(filename, 'rb').read()
+
+        os.remove(filename)
+
+        return Response({'status': 'ok', 'data': base64.b64encode(file_data)})
+
+
+class GetConferenceMembersExcel(APIView):
+    permission_classes = (permissions.IsAuthenticated,)
+    parser_classes = (parsers.JSONParser,)
+
+    def get(self, request):
+        serializer = UserSerializer(request.user)
+        id_ = serializer.data['id']
+        u = User.objects.get(pk=id_)
+
+        conf_id = request.GET.get('conf_id', None)
+        if conf_id == None:
+            return Response({"status": "error", "error_description": "Field 'conf_id' is required"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        conference = u.conference_set.get(pk=conf_id)
+
+        table = {
+            "Фамилия": [],
+            "Имя": [],
+            "Отчество": [],
+            "E-mail": [],
+            "Город": [],
+            "Учебное заведение": [],
+            "Направление": [],
+            "Выступает с докладом": [],
+            "Тема доклада": [],
+            "Подтверждён": [],
+        }
+
+        for member in conference.member_set.all():
+            approval = "-"
+            if member.approved == None:
+                approval = "Не подтверждён"
+            elif member.approved == True:
+                approval = "Подтверждён"
+            elif member.approved == False:
+                approval = "Отклонён"
+            table['Фамилия'].append(member.surname)
+            table['Имя'].append(member.name)
+            table['Отчество'].append(member.middlename)
+            table['E-mail'].append(member.email)
+            table['Город'].append(member.city)
+            table['Учебное заведение'].append(member.uni)
+            table['Направление'].append(member.course)
+            table['Выступает с докладом'].append("Да" if member.with_topic else "Нет")
+            table['Тема доклада'].append(member.topic)
+            table['Подтверждён'].append(approval)
+
+        filename = './{}.xlsx'.format(hex(int(time() * 1000)))
+
+        df = pd.DataFrame(table)
+        writer = pd.ExcelWriter(filename, engine='xlsxwriter')
+        df.to_excel(writer, startrow = 1, startcol = 1, sheet_name='Участники', index=False)
+
+        workbook = writer.book
+        worksheet = writer.sheets['Участники']
+
+        worksheet.write(0, 0, conference.name)
+        worksheet.set_column(0, 0, len(conference.name)+20)
+
+        for i, col in enumerate(df.columns):
+            column_len = df[col].astype(str).str.len().max()
+            column_len = max(column_len, len(col)) + 10
+            worksheet.set_column(i, i, column_len)
+
+        writer.save()
+
+        file_data = open(filename, 'rb').read()
+
+        os.remove(filename)
+
+        return Response({'status': 'ok', 'data': base64.b64encode(file_data)})

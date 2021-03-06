@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import datetime
+import dj_database_url
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -72,6 +73,8 @@ DATABASES = {
         'NAME': BASE_DIR / 'db.sqlite3',
     }
 }
+db_from_env = dj_database_url.config(conn_max_age=500)
+DATABASES['default'].update(db_from_env)
 
 
 # Password validation
@@ -106,6 +109,14 @@ USE_L10N = True
 
 USE_TZ = True
 
+EMAIL_HOST = 'smtp.mail.ru'
+EMAIL_PORT=2525
+EMAIL_HOST_USER = 'conferencer_agent@mail.ru'
+EMAIL_HOST_PASSWORD = 'ReallySecretPassword'
+EMAIL_USE_TLS = True
+EMAIL_USE_SSL = False
+SERVER_EMAIL = EMAIL_HOST_USER
+DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/3.1/howto/static-files/
